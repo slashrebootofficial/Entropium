@@ -57,10 +57,10 @@ Full version history and archival copy: [https://zenodo.org/records/19873111](ht
 
 [Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE)
 
-## Contact
+### Contact
 matthew@slashreboot.com, @slashreboot on X, https://slashreboot.com
 
-## Citation
+### Citation
 If you use this work, please cite the individual papers via their DOIs.
 
 ---
