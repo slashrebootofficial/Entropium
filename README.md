@@ -31,7 +31,6 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 3. Click **"Seed Scalar Knot"** to begin
 
 **Requirements**: WebGPU enabled (default in current Chrome/Edge). \
-\
 **Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
 
 ### Related papers
