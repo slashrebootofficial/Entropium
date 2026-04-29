@@ -12,8 +12,6 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
        width="820">
 </p>
 
-<br>
-
 ### Try it now
 
 1. **Download** [`entropium-v62.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-v62.html)
