@@ -8,9 +8,10 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 
 <p align="center">
   <img src="entropium-v62-screenshot.png" 
-       alt="Entropium v62 — Real-time scalar knot with Rydberg packet" 
-       width="820">
+       alt="Entropium v62 — Scalar knot with Rydberg packet" 
+       width="820" style="max-width:100%; border-radius:8px; box-shadow: 0 4px 20px rgba(0,255,100,0.15);">
 </p>
+<p align="center"><em>Live scalar knot with Rydberg packet (v62)</em></p>
 
 ### Try it now
 
