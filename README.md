@@ -1,6 +1,6 @@
 # Entropium
 
-**Real-time browser visualization of the Entropic Universe Theory (EUT)**
+### **Real-time browser visualization of the Entropic Universe Theory (EUT)**
 
 A standalone, single-file interactive demonstration that faithfully implements the full mathematical framework of the Entropic Universe Theory.
 
