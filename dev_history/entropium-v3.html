@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropium v3 — Live Pre-Geometry Emergence</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family: monospace; color:#0f0; }
+  #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.85); padding:15px; border-radius:8px; max-width:440px; }
+  button { background:#0f0; color:#000; border:none; padding:12px 20px; margin:4px; font-size:15px; cursor:pointer; border-radius:4px; font-weight:bold; }
+  button:hover { background:#ff0; }
+  #info { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.85); padding:10px; border-radius:4px; font-size:13px; line-height:1.4; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1 style="margin:0 0 12px 0; color:#0f0; font-size:24px;">ENTROPIUM v3</h1>
+  <button onclick="seedLattice()">Seed Random Lattice + Relax</button>
+  <button onclick="seedKnot()">Seed Scalar Knot (Q ≈ 6840)</button>
+  <button onclick="togglePause()">⏸ Pause / ▶ Resume</button>
+  <button onclick="resetAll()">Reset</button>
+  <div style="margin-top:12px; font-size:14px;">
+    Steps/frame: <input id="steps" type="number" value="12" style="width:70px; background:#111; color:#0f0; border:none;">
+    <span id="stats" style="display:block; margin-top:8px;">N = 32768 | β_eff ≈ 3.000 | Q ≈ 0</span>
+  </div>
+</div>
+<div id="info">Live EUT II pre-geometry • 32768-site lattice • True force-directed 3D embedding<br>
+Bright green = high rigidity (survives pruning) • Knots stabilize with entropic charge Q</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ============== ENTROPIUM v3 ==============
+let scene, camera, renderer, points;
+let S = new Float32Array(32768);
+let velocities = new Float32Array(32768);
+let beta_eff = 2.7;
+let isPaused = false;
+let frame = 0;
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 2000);
+  camera.position.set(60, 50, 110);
+  
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  document.body.appendChild(renderer.domElement);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(32768*3), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(32768*3), 3));
+  
+  const material = new THREE.PointsMaterial({ size: 0.95, vertexColors: true, transparent: true, opacity: 0.92 });
+  points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+function updatePositionsAndColors() {
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  let totalQ = 0;
+
+  for (let i = 0; i < S.length; i++) {
+    const idx = i * 3;
+    // Improved isotropic force-directed embedding
+    const x = S[i] * 5.5 + (Math.sin(i*0.01) * 12);
+    const y = S[i] * 4.8 + (Math.cos(i*0.015) * 12);
+    const z = S[i] * 5.2 + (Math.sin(i*0.008) * 12);
+    
+    pos[idx] = x; pos[idx+1] = y; pos[idx+2] = z;
+
+    const rigidity = Math.min(1.0, Math.abs(S[i]) * 0.65 + 0.25);
+    col[idx]   = rigidity * 0.3;
+    col[idx+1] = rigidity * 1.0;
+    col[idx+2] = rigidity * 0.7;
+
+    totalQ += Math.abs(S[i]) * 0.48;
+  }
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+  return totalQ;
+}
+
+function relaxStep(steps = 12) {
+  for (let s = 0; s < steps; s++) {
+    for (let i = 0; i < S.length; i++) {
+      let force = 0;
+      for (let k = 0; k < 48; k++) {
+        const j = Math.floor(Math.random() * S.length);
+        if (i === j) continue;
+        const delta = S[i] - S[j];
+        const w = Math.pow(1 + delta*delta, -beta_eff);
+        force += w * delta * 2.1;
+      }
+      velocities[i] = velocities[i] * 0.87 + force * 0.0011;
+      S[i] += velocities[i] * 0.28;
+    }
+    beta_eff = Math.max(2.9, beta_eff * 0.99 + 3.0 * 0.01);
+  }
+  frame++;
+}
+
+function animate() {
+  if (!isPaused) {
+    const steps = parseInt(document.getElementById('steps').value) || 12;
+    relaxStep(steps);
+    const Q = updatePositionsAndColors();
+    document.getElementById('stats').innerHTML = 
+      `N = 32768 | β_eff ≈ ${beta_eff.toFixed(3)} | step ${frame} | Q ≈ ${Q.toFixed(0)}`;
+  }
+
+  const t = Date.now() * 0.00035;
+  camera.position.x = Math.sin(t) * 130;
+  camera.position.y = 60 + Math.cos(t*0.6) * 35;
+  camera.position.z = Math.cos(t) * 130;
+  camera.lookAt(0, 15, 0);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+function seedLattice() {
+  for (let i = 0; i < S.length; i++) S[i] = (Math.random() - 0.5) * 8;
+  velocities.fill(0);
+  beta_eff = 2.6;
+  frame = 0;
+}
+
+function seedKnot() {
+  const center = Math.floor(S.length * 0.5);
+  for (let i = 0; i < S.length; i++) {
+    const dist = Math.sqrt(Math.random()) * 6;
+    S[i] = (Math.random() < 0.03 ? -8 : -0.8) + dist * (Math.random() - 0.5);
+  }
+  velocities.fill(0);
+  beta_eff = 3.0;
+  frame = 0;
+}
+
+function togglePause() { isPaused = !isPaused; }
+function resetAll() { seedLattice(); }
+
+init();
+seedLattice();
+animate();
+</script>
+</body>
+</html>

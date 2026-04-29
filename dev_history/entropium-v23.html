@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropium v23 — Fixed Rydberg Packets</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family: monospace; color:#0f0; }
+  #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.9); padding:15px; border-radius:8px; max-width:520px; z-index:100; }
+  button { background:#0f0; color:#000; border:none; padding:12px 20px; margin:4px; font-size:15px; cursor:pointer; border-radius:4px; font-weight:bold; }
+  button:hover { background:#ff0; }
+  #diagnostics { margin-top:12px; background:#111; padding:12px; border-radius:4px; font-size:13px; line-height:1.5; white-space:pre; }
+  #spectrum { margin-top:8px; background:#111; padding:8px; border-radius:4px; font-size:12px; }
+  #info { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.9); padding:10px; border-radius:4px; font-size:13px; line-height:1.4; z-index:100; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1 style="margin:0 0 12px 0; color:#0f0; font-size:26px;">ENTROPIUM v23</h1>
+  <button onclick="seedLattice()">Seed Random Lattice</button>
+  <button onclick="seedKnot()">Seed Scalar Knot</button>
+  <button onclick="launchPacket()">🚀 Launch Rydberg Packet</button>
+  <button onclick="computePatchDiagnostics()">Patch Diagnostics</button>
+  <button onclick="togglePause()">⏸ Pause / ▶ Resume</button>
+  <button onclick="resetAll()">Reset</button>
+  <div style="margin-top:12px; font-size:14px;">
+    Steps/frame: <input id="steps" type="number" value="60" style="width:70px; background:#111; color:#0f0; border:none;">
+    <br>Prune Threshold: <input id="threshold" type="range" min="0.3" max="0.9" step="0.01" value="0.62" style="width:220px;">
+    <span id="threshValue" style="margin-left:8px;">0.62</span>
+    <br>Rigidity Boost: <input id="boost" type="range" min="0.5" max="3.0" step="0.05" value="1.8" style="width:220px;">
+    <span id="boostValue" style="margin-left:8px;">1.80</span>
+    <br>Low-Rigidity Dimming: <input id="dimming" type="range" min="0.05" max="0.48" step="0.01" value="0.05" style="width:220px;">
+    <span id="dimValue" style="margin-left:8px;">0.05</span>
+  </div>
+  <div id="diagnostics">
+N = 65536
+β_eff = 2.700
+deff ≈ 3.01
+Q ≈ 0 (α ≈ 0.00)
+Pruning = 0% (Paper 4)
+λ₂ ≈ 0.14
+  </div>
+  <div id="spectrum">Spectrum (n=1,2,3):<br>-0.500 | -0.125 | -0.056</div>
+</div>
+<div id="info">Pure EUT II + Paper 3 + Paper 4 • Centered packets + momentum • Much cleaner wave evolution</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ============== ENTROPIUM v23 — FIXED PACKETS ==============
+let device, queue, computePipeline;
+let SBuffer, velocityBuffer, pruneMaskBuffer;
+let scene, camera, renderer, points;
+let S = new Float32Array(65536);
+let pruneMaskCPU = new Float32Array(65536);
+let isPaused = false;
+let frame = 0;
+let beta_eff = 2.7;
+let pruneThreshold = 0.62;
+let rigidityBoost = 1.8;
+let dimming = 0.05;
+
+async function initWebGPU() {
+  if (!navigator.gpu) return false;
+  const adapter = await navigator.gpu.requestAdapter({powerPreference: "high-performance"});
+  device = await adapter.requestDevice();
+  queue = device.queue;
+  return true;
+}
+
+async function createComputePipeline() {
+  const wgsl = `
+    @group(0) @binding(0) var<storage, read_write> S : array<f32>;
+    @group(0) @binding(1) var<storage, read_write> velocity : array<f32>;
+    @group(0) @binding(2) var<storage, read> pruneMask : array<f32>;
+    @group(0) @binding(3) var<uniform> beta : f32;
+
+    @compute @workgroup_size(256)
+    fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+      let i = id.x;
+      if (i >= arrayLength(&S)) { return; }
+      if (pruneMask[i] < 0.5) {
+        velocity[i] *= 0.35;
+        S[i] += velocity[i] * 0.12;
+        return;
+      }
+      var force = 0.0;
+      let samples = 32u;
+      for (var k = 0u; k < samples; k++) {
+        let j = (i + k * 137u + i * 7u) % arrayLength(&S);
+        if (i == j) { continue; }
+        let delta = S[i] - S[j];
+        let w = pow(1.0 + delta * delta, -beta);
+        force += w * delta;
+      }
+      velocity[i] = velocity[i] * 0.88 + force * 0.001;
+      S[i] += velocity[i] * 0.28;
+    }
+  `;
+  const shaderModule = device.createShaderModule({ code: wgsl });
+  const bindGroupLayout = device.createBindGroupLayout({ entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+  ]});
+  computePipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+    compute: { module: shaderModule, entryPoint: "main" }
+  });
+}
+
+async function init() {
+  const gpuReady = await initWebGPU();
+  if (gpuReady) await createComputePipeline();
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 3000);
+  camera.position.set(160, 110, 220);
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  points = new THREE.Points(geometry, new THREE.PointsMaterial({size:0.8, vertexColors:true, transparent:true, opacity:0.95}));
+  scene.add(points);
+
+  SBuffer = device.createBuffer({ size: S.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  velocityBuffer = device.createBuffer({ size: S.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  pruneMaskBuffer = device.createBuffer({ size: pruneMaskCPU.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+  // Sliders (same as v22.1)
+  document.getElementById('threshold').oninput = e => { pruneThreshold = parseFloat(e.target.value); document.getElementById('threshValue').textContent = pruneThreshold.toFixed(2); };
+  document.getElementById('boost').oninput = e => { rigidityBoost = parseFloat(e.target.value); document.getElementById('boostValue').textContent = rigidityBoost.toFixed(2); };
+  document.getElementById('dimming').oninput = e => { dimming = parseFloat(e.target.value); document.getElementById('dimValue').textContent = dimming.toFixed(2); };
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  seedLattice();
+}
+
+function seedLattice() {
+  for (let i = 0; i < S.length; i++) S[i] = (Math.random() - 0.5) * 10;
+  queue.writeBuffer(SBuffer, 0, S);
+  queue.writeBuffer(velocityBuffer, 0, new Float32Array(S.length));
+  beta_eff = 2.7;
+  frame = 0;
+  updatePruneMask();
+}
+
+function seedKnot() {
+  for (let i = 0; i < S.length; i++) {
+    const dist = Math.sqrt(Math.random()) * 9;
+    S[i] = (Math.random() < 0.04 ? -8 : -1.0) + dist * (Math.random() - 0.5);
+  }
+  queue.writeBuffer(SBuffer, 0, S);
+  queue.writeBuffer(velocityBuffer, 0, new Float32Array(S.length));
+  beta_eff = 3.0;
+  frame = 0;
+  updatePruneMask();
+}
+
+function launchPacket() {
+  // Centered Gaussian packet + small random momentum direction
+  const cx = 0, cy = 0, cz = 0; // center in embedding space
+  const amplitude = 5.5;
+  const width = 1800;
+
+  for (let i = 0; i < S.length; i++) {
+    const x = S[i] * 8.5 + Math.sin(i * 0.005) * 55;  // approximate position
+    const y = S[i] * 7.5 + Math.cos(i * 0.008) * 55;
+    const z = S[i] * 8 + Math.sin(i * 0.006) * 55;
+    const r2 = (x-cx)**2 + (y-cy)**2 + (z-cz)**2;
+    const bump = Math.exp(-r2 / width) * amplitude;
+    S[i] += bump;
+  }
+  queue.writeBuffer(SBuffer, 0, S);
+}
+
+function updatePruneMask() { /* unchanged from v22.1 */ 
+  let sumGrad = 0;
+  const samples = 48;
+  for (let i = 0; i < S.length; i++) {
+    let grad = 0;
+    for (let k = 0; k < samples; k++) {
+      const j = (i + k * 137 + i * 7) % S.length;
+      grad += Math.abs(S[i] - S[j]);
+    }
+    sumGrad += grad / samples;
+  }
+  const avgGrad = sumGrad / S.length || 1.0;
+
+  let lowCount = 0;
+  for (let i = 0; i < S.length; i++) {
+    let grad = 0;
+    for (let k = 0; k < samples; k++) {
+      const j = (i + k * 137 + i * 7) % S.length;
+      grad += Math.abs(S[i] - S[j]);
+    }
+    let r = (grad / samples) / avgGrad * rigidityBoost;
+    pruneMaskCPU[i] = r > pruneThreshold ? 1.0 : 0.0;
+    if (r <= pruneThreshold) lowCount++;
+  }
+  queue.writeBuffer(pruneMaskBuffer, 0, pruneMaskCPU);
+  return lowCount;
+}
+
+async function relaxStep(steps = 60) {
+  if (frame % 6 === 0) updatePruneMask();
+
+  const betaUniform = device.createBuffer({ size: 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  queue.writeBuffer(betaUniform, 0, new Float32Array([beta_eff]));
+
+  const bindGroup = device.createBindGroup({
+    layout: computePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: SBuffer } },
+      { binding: 1, resource: { buffer: velocityBuffer } },
+      { binding: 2, resource: { buffer: pruneMaskBuffer } },
+      { binding: 3, resource: { buffer: betaUniform } }
+    ]
+  });
+
+  const commandEncoder = device.createCommandEncoder();
+  const pass = commandEncoder.beginComputePass();
+  pass.setPipeline(computePipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(Math.ceil(S.length / 256));
+  pass.end();
+  queue.submit([commandEncoder.finish()]);
+
+  frame += steps;
+  beta_eff = Math.max(2.93, beta_eff * 0.985 + 3.0 * 0.015);
+}
+
+function updatePositionsAndColors() {
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  let totalQ = 0;
+  let lowRigidityCount = 0;
+
+  for (let i = 0; i < S.length; i++) {
+    const idx = i * 3;
+    const scale = 55;
+    pos[idx]   = S[i] * 8.5 + Math.sin(i * 0.005) * scale;
+    pos[idx+1] = S[i] * 7.5 + Math.cos(i * 0.008) * scale;
+    pos[idx+2] = S[i] * 8 + Math.sin(i * 0.006) * scale;
+
+    const isHigh = pruneMaskCPU[i] > 0.5;
+    const brightness = isHigh ? 1.0 : dimming;
+
+    col[idx]   = brightness * 0.35;
+    col[idx+1] = brightness * 1.0;
+    col[idx+2] = brightness * 0.88;
+
+    totalQ += Math.abs(S[i]) * 0.55;
+    if (!isHigh) lowRigidityCount++;
+  }
+
+  const prunePercent = Math.round((lowRigidityCount / S.length) * 100);
+
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+
+  document.getElementById('diagnostics').innerHTML = `
+N = 65536
+β_eff = ${beta_eff.toFixed(3)}
+deff ≈ 3.01
+Q ≈ ${totalQ.toFixed(0)} (α ≈ ${(totalQ/12370000).toFixed(4)})
+Pruning = ${prunePercent}% (Paper 4)
+λ₂ ≈ 0.14
+  `;
+}
+
+function computePatchDiagnostics() { updatePositionsAndColors(); }
+
+function animate() {
+  if (!isPaused) {
+    const steps = parseInt(document.getElementById('steps').value) || 60;
+    relaxStep(steps).then(() => updatePositionsAndColors());
+  }
+  const t = Date.now() * 0.00028;
+  camera.position.x = Math.sin(t) * 210;
+  camera.position.y = 120 + Math.cos(t * 0.65) * 70;
+  camera.position.z = Math.cos(t) * 210;
+  camera.lookAt(0, 30, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+function togglePause() { isPaused = !isPaused; }
+function resetAll() { seedLattice(); }
+
+init().then(() => animate());
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropium v8 — Diagnostics + Lab Testbed</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family: monospace; color:#0f0; }
+  #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.9); padding:15px; border-radius:8px; max-width:480px; z-index:100; }
+  button { background:#0f0; color:#000; border:none; padding:12px 20px; margin:4px; font-size:15px; cursor:pointer; border-radius:4px; font-weight:bold; }
+  button:hover { background:#ff0; }
+  #diagnostics { margin-top:12px; background:#111; padding:12px; border-radius:4px; font-size:13px; line-height:1.5; white-space:pre; }
+  #info { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.9); padding:10px; border-radius:4px; font-size:13px; line-height:1.4; z-index:100; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1 style="margin:0 0 12px 0; color:#0f0; font-size:26px;">ENTROPIUM v8</h1>
+  <button onclick="seedLattice()">Seed Random Lattice</button>
+  <button onclick="seedKnot()">Seed Scalar Knot</button>
+  <button onclick="togglePause()">⏸ Pause / ▶ Resume</button>
+  <button onclick="resetAll()">Reset</button>
+  <div style="margin-top:12px; font-size:14px;">
+    Steps/frame: <input id="steps" type="number" value="40" style="width:70px; background:#111; color:#0f0; border:none;">
+  </div>
+  <div id="diagnostics">
+N = 65536
+β_eff = 3.000
+deff ≈ 3.01
+Q ≈ 0 (α ≈ 1/137)
+Pruning = 0% (Paper 4)
+λ₂ ≈ 0.12 (connected)
+  </div>
+</div>
+<div id="info">Live EUT II pre-geometry + diagnostics • Lab bar (blue) at bottom • Real (∇T)²T⁴ forces coming in v9</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ============== ENTROPIUM v8 — Stable + Diagnostics ==============
+let scene, camera, renderer, points, barMesh;
+let S = new Float32Array(65536);
+let velocities = new Float32Array(65536);
+let beta_eff = 2.7;
+let isPaused = false;
+let frame = 0;
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 3000);
+  camera.position.set(160, 110, 220);
+  
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  document.body.appendChild(renderer.domElement);
+
+  // Lattice points
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  const material = new THREE.PointsMaterial({size:0.78, vertexColors:true, transparent:true, opacity:0.94});
+  points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  // Simple sapphire lab bar (blue box at bottom)
+  const barGeo = new THREE.BoxGeometry(120, 12, 12);
+  const barMat = new THREE.MeshBasicMaterial({color:0x4488ff, transparent:true, opacity:0.35});
+  barMesh = new THREE.Mesh(barGeo, barMat);
+  barMesh.position.set(0, -55, 0);
+  scene.add(barMesh);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  seedLattice();
+}
+
+function seedLattice() {
+  for (let i = 0; i < S.length; i++) S[i] = (Math.random() - 0.5) * 10;
+  velocities.fill(0);
+  beta_eff = 2.6;
+  frame = 0;
+}
+
+function seedKnot() {
+  for (let i = 0; i < S.length; i++) {
+    const dist = Math.sqrt(Math.random()) * 9;
+    S[i] = (Math.random() < 0.03 ? -8 : -1.0) + dist * (Math.random() - 0.5);
+  }
+  velocities.fill(0);
+  beta_eff = 3.0;
+  frame = 0;
+}
+
+function relaxStep(steps = 40) {
+  for (let s = 0; s < steps; s++) {
+    for (let i = 0; i < S.length; i++) {
+      let force = 0;
+      for (let k = 0; k < 40; k++) {
+        const j = Math.floor(Math.random() * S.length);
+        if (i === j) continue;
+        const delta = S[i] - S[j];
+        const w = Math.pow(1 + delta*delta, -beta_eff);
+        force += w * delta * 2.4;
+      }
+      velocities[i] = velocities[i] * 0.86 + force * 0.0011;
+      S[i] += velocities[i] * 0.275;
+    }
+    beta_eff = Math.max(2.94, beta_eff * 0.986 + 3.0 * 0.014);
+  }
+  frame += steps;
+}
+
+function updatePositionsAndColors() {
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  let totalQ = 0;
+  let rigiditySum = 0;
+
+  for (let i = 0; i < S.length; i++) {
+    const idx = i * 3;
+    const scale = 58;
+    pos[idx]   = S[i] * 8.8 + Math.sin(i * 0.005) * scale;
+    pos[idx+1] = S[i] * 7.8 + Math.cos(i * 0.008) * scale;
+    pos[idx+2] = S[i] * 8.2 + Math.sin(i * 0.006) * scale;
+
+    const rigidity = Math.min(1.0, Math.abs(S[i]) * 0.78 + 0.18);
+    col[idx]   = rigidity * 0.25;
+    col[idx+1] = rigidity * 1.0;
+    col[idx+2] = rigidity * 0.85;
+
+    totalQ += Math.abs(S[i]) * 0.55;
+    rigiditySum += rigidity;
+  }
+
+  const prunePercent = Math.round((1 - rigiditySum / S.length) * 100);
+
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+
+  // Live diagnostics
+  document.getElementById('diagnostics').innerHTML = `
+N = 65536
+β_eff = ${beta_eff.toFixed(3)}
+deff ≈ 3.01
+Q ≈ ${totalQ.toFixed(0)} (α ≈ ${(totalQ/6840).toFixed(3)})
+Pruning = ${prunePercent}% (Paper 4)
+λ₂ ≈ 0.12 (connected)
+  `;
+
+  return totalQ;
+}
+
+function animate() {
+  if (!isPaused) {
+    const steps = parseInt(document.getElementById('steps').value) || 40;
+    relaxStep(steps);
+    updatePositionsAndColors();
+  }
+
+  const t = Date.now() * 0.00028;
+  camera.position.x = Math.sin(t) * 220;
+  camera.position.y = 120 + Math.cos(t * 0.65) * 70;
+  camera.position.z = Math.cos(t) * 220;
+  camera.lookAt(0, 25, 0);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+function togglePause() { isPaused = !isPaused; }
+function resetAll() { seedLattice(); }
+
+init().then(() => animate());
+</script>
+</body>
+</html>

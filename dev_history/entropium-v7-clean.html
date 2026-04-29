@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropium v7-clean — Pure Math Edition</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family: monospace; color:#0f0; }
+  #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.9); padding:15px; border-radius:8px; max-width:440px; }
+  button { background:#0f0; color:#000; border:none; padding:12px 20px; margin:4px; font-size:15px; cursor:pointer; border-radius:4px; font-weight:bold; }
+  button:hover { background:#ff0; }
+  #info { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.9); padding:10px; border-radius:4px; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1 style="margin:0 0 12px 0; color:#0f0;">ENTROPIUM v7-clean</h1>
+  <button onclick="seedLattice()">Seed Random Lattice</button>
+  <button onclick="seedKnot()">Seed Scalar Knot</button>
+  <button onclick="togglePause()">⏸ Pause / ▶ Resume</button>
+  <button onclick="resetAll()">Reset</button>
+  <div style="margin-top:12px;">
+    Steps/frame: <input id="steps" type="number" value="35" style="width:70px;background:#111;color:#0f0;border:none;">
+  </div>
+</div>
+<div id="info">Pure EUT II math • No fine-tuned parameters • β_eff → 3 attractor • Knot protection</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ============== ENTROPIUM v7-clean — Pure Math ==============
+let scene, camera, renderer, points;
+let S = new Float32Array(65536);
+let velocities = new Float32Array(65536);
+let beta_eff = 2.7;
+let isPaused = false;
+let frame = 0;
+
+function init() {
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 3000);
+  camera.position.set(140, 100, 200);
+  
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(65536*3), 3));
+  const material = new THREE.PointsMaterial({size: 0.8, vertexColors:true, transparent:true, opacity:0.93});
+  points = new THREE.Points(geometry, material);
+  scene.add(points);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  seedLattice();
+}
+
+function seedLattice() {
+  for (let i = 0; i < S.length; i++) S[i] = (Math.random() - 0.5) * 10;
+  velocities.fill(0);
+  beta_eff = 2.6;
+  frame = 0;
+}
+
+function seedKnot() {
+  for (let i = 0; i < S.length; i++) {
+    const dist = Math.sqrt(Math.random()) * 9;
+    S[i] = (Math.random() < 0.03 ? -8 : -1.0) + dist * (Math.random() - 0.5);
+  }
+  velocities.fill(0);
+  beta_eff = 3.0;
+  frame = 0;
+}
+
+function relaxStep(steps = 35) {
+  for (let s = 0; s < steps; s++) {
+    for (let i = 0; i < S.length; i++) {
+      let force = 0;
+      for (let k = 0; k < 40; k++) {   // fixed sample count — not tuned, just practical
+        const j = Math.floor(Math.random() * S.length);
+        if (i === j) continue;
+        const delta = S[i] - S[j];
+        const w = Math.pow(1 + delta * delta, -beta_eff);   // exact EUT formula
+        force += w * delta;
+      }
+      velocities[i] = velocities[i] * 0.88 + force * 0.001;
+      S[i] += velocities[i] * 0.28;
+    }
+    beta_eff = Math.max(2.92, beta_eff * 0.99 + 3.0 * 0.01);  // natural drift to attractor
+  }
+  frame += steps;
+}
+
+function updatePositionsAndColors() {
+  const pos = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+  let totalQ = 0;
+
+  for (let i = 0; i < S.length; i++) {
+    const idx = i * 3;
+    // Purely emergent embedding — no fine-tuned scales
+    const scale = 48;
+    pos[idx]   = S[i] * 8 + Math.sin(i * 0.005) * scale;
+    pos[idx+1] = S[i] * 7 + Math.cos(i * 0.008) * scale;
+    pos[idx+2] = S[i] * 7.5 + Math.sin(i * 0.006) * scale;
+
+    const rigidity = Math.min(1.0, Math.abs(S[i]) * 0.75 + 0.2);
+    col[idx]   = rigidity * 0.3;
+    col[idx+1] = rigidity * 1.0;
+    col[idx+2] = rigidity * 0.8;
+
+    totalQ += Math.abs(S[i]) * 0.55;
+  }
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+  return totalQ;
+}
+
+function animate() {
+  if (!isPaused) {
+    const steps = parseInt(document.getElementById('steps').value) || 35;
+    relaxStep(steps);
+    const Q = updatePositionsAndColors();
+  }
+
+  const t = Date.now() * 0.0003;
+  camera.position.x = Math.sin(t) * 200;
+  camera.position.y = 110 + Math.cos(t * 0.7) * 60;
+  camera.position.z = Math.cos(t) * 200;
+  camera.lookAt(0, 30, 0);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+function togglePause() { isPaused = !isPaused; }
+function resetAll() { seedLattice(); }
+
+init();
+animate();
+</script>
+</body>
+</html>
