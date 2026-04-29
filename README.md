@@ -7,11 +7,15 @@ A standalone, single-file interactive demonstration that faithfully implements t
 It executes the exact native pre-geometric lattice operations from *EUT II* and the scalar knot physics from *Paper 3*, producing stable scalar knots with protected primordial cores, true emergent 3D geometry, localized Rydberg packets, and live spectral diagnostics — all directly from the equations in the papers.
 
 ### Try it now
-[![Open in Browser](https://img.shields.io/badge/Open_in_Browser-Entropium_v62-00ff88?style=for-the-badge&logo=googlechrome)](https://html-preview.github.io/?url=https://raw.githubusercontent.com/slashrebootofficial/Entropium/main/entropium-v62.html)
 
-(Just click the button above or download the HTML file and open it locally.)
+1. **Download** [`entropium-v62.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-v62.html)
+2. Open the file directly in **Google Chrome** or **Microsoft Edge** (latest version)
+3. Click **"Seed Scalar Knot"** and watch the theory run live
+
+> **Note:** WebGPU works best when the HTML file is opened from your local filesystem. Online previewers usually block or disable WebGPU for security reasons.
 
 ### Features
+
 - Scalar knots with protected primordial cores (Paper 3)
 - True emergent 3D geometry via graph Laplacian embedding
 - Dynamic \(\beta_{\rm eff}\) relaxation to the rigidity attractor \(\beta = 3\)
@@ -21,23 +25,28 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 - Runs entirely in-browser with WebGPU (no installation)
 
 ### How to run
-1. Download `entropium-v62.html`
-2. Open it in **Chrome** or **Edge** (latest version)
-3. Click **"Seed Scalar Knot"** and watch the theory come to life
 
-**Requirements**: Modern browser with WebGPU enabled.
+1. Download `entropium-v62.html`
+2. Open it in **Google Chrome** or **Microsoft Edge** (latest version)
+3. Click **"Seed Scalar Knot"** to begin
+
+**Requirements**: Modern browser with WebGPU enabled (default in current Chrome/Edge).
 
 ### Related papers
+
 This demo is a computational companion to:
+
 1. [The Entropic Universe: An Effective Field Theory... (v10)](https://doi.org/10.5281/zenodo.17528477)
 2. [The Entropic Universe II... (v5)](https://doi.org/10.5281/zenodo.17651888)
 3. [Stability of Scalar Knots... (Paper 3)](https://doi.org/10.5281/zenodo.19542399)
 4. [Leveraging Simplified Physics Models... (Paper 4)](https://doi.org/10.5281/zenodo.17915437)
 
 ### Zenodo record
+
 Full version history and archival copy: [https://zenodo.org/records/19873111](https://zenodo.org/records/19873111)
 
 ### License
+
 [Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE)
 
 ---
