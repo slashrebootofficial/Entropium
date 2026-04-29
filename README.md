@@ -6,6 +6,14 @@ A standalone, single-file interactive demonstration that faithfully implements t
 
 It executes the exact native pre-geometric lattice operations from *EUT II* and the scalar knot physics from *Paper 3*, producing stable scalar knots with protected primordial cores, true emergent 3D geometry, localized Rydberg packets, and live spectral diagnostics — all directly from the equations in the papers.
 
+<p align="center">
+  <img src="entropium-v62-screenshot.png" 
+       alt="Entropium v62 — Real-time scalar knot with Rydberg packet" 
+       width="820">
+</p>
+
+<br>
+
 ### Try it now
 
 1. **Download** [`entropium-v62.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-v62.html)
@@ -49,6 +57,12 @@ Full version history and archival copy: [https://zenodo.org/records/19873111](ht
 ### License
 
 [Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE)
+
+## Contact
+matthew@slashreboot.com, @slashreboot on X, https://slashreboot.com
+
+## Citation
+If you use this work, please cite the individual papers via their DOIs.
 
 ---
 
