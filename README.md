@@ -37,7 +37,6 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 1. Download `entropium-v62.html` or
 2. Download `entropium-pure-geometric-v70.html`
 3. Open it in **Google Chrome** or **Microsoft Edge** (latest version)
-4. Click **"Seed Scalar Knot"** to begin
 
 **Requirements**: WebGPU enabled (default in current Chrome/Edge). \
 **Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
