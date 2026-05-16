@@ -21,8 +21,8 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 4. Click **"Seed Scalar Knot"** and watch the theory run live
 
 > **Note:** WebGPU works best when the HTML file is opened from your local filesystem. Online previewers usually block or disable WebGPU for security reasons.
-> **Requirements**: WebGPU enabled (default in current Chrome/Edge). \
-> **Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
+- **Requirements**: WebGPU enabled (default in current Chrome/Edge). \
+- **Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
 ### Features
 
 - Scalar knots with protected primordial cores (Paper 3)
