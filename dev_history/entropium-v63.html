@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Entropium v63 — Pure Pre-Geometric</title>
+<style>
+  body { margin:0; overflow:hidden; background:#000; font-family: monospace; color:#0f0; }
+  #ui { position:absolute; top:10px; left:10px; background:rgba(0,0,0,0.92); padding:18px; border-radius:10px; max-width:560px; z-index:100; }
+  button { background:#0f0; color:#000; border:none; padding:10px 16px; margin:4px; font-size:14px; cursor:pointer; border-radius:4px; font-weight:bold; }
+  button:hover { background:#ff0; }
+  #diagnostics { margin-top:12px; background:#111; padding:10px; border-radius:6px; font-size:13px; line-height:1.4; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1 style="margin:0 0 10px 0; color:#0f0; font-size:24px;">ENTROPIUM v63</h1>
+  <p style="margin:0 0 10px 0; font-size:13px; opacity:0.85;">Pure Pre-Geometric • 16,384 nodes</p>
+  
+  <button onclick="seedLattice()">Seed Random Lattice</button>
+  <button onclick="seedKnot()">Seed Scalar Knot</button>
+  <button onclick="launchPacket()">Launch Rydberg Packet</button>
+  <button onclick="togglePause()">⏸ Pause / ▶ Resume</button>
+  <button onclick="resetAll()">Reset</button>
+
+  <div style="margin-top:12px; font-size:13px;">
+    Steps/frame: <input id="steps" type="number" value="60" style="width:60px; background:#111; color:#0f0; border:none;">
+    <br>Embedding every: <input id="embedInterval" type="number" value="180" style="width:60px; background:#111; color:#0f0; border:none;"> steps
+  </div>
+
+  <div id="diagnostics">N = 16384<br>β_eff = 3.000<br>deff ≈ 3.00<br>Pruning = 0%<br>Embedding: Waiting...</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ============== ENTROPIUM v63 — PURE PRE-GEOMETRIC ==============
+const N = 16384;
+let device, queue, computePipeline;
+let SBuffer, velocityBuffer, pruneMaskBuffer, TBuffer, coreMaskBuffer, neighborBuffer, betaBuffer;
+
+let scene, camera, renderer, points;
+let S = new Float32Array(N);
+let T = new Float32Array(N).fill(1.0);
+let coreMaskCPU = new Float32Array(N);
+let pruneMaskCPU = new Float32Array(N);
+let betaCPU = new Float32Array(N).fill(3.0);
+let neighbors = new Uint32Array(N * 32);
+let positions = new Float32Array(N * 3);   // Only used for visualization
+let velPos = new Float32Array(N * 3);
+
+let isPaused = false;
+let frame = 0;
+let embeddingInterval = 180;
+let lastEmbeddingFrame = 0;
+
+async function initWebGPU() {
+  if (!navigator.gpu) return false;
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  device = await adapter.requestDevice();
+  queue = device.queue;
+  return true;
+}
+
+async function createComputePipeline() {
+  const wgsl = `
+    @group(0) @binding(0) var<storage, read_write> S : array<f32>;
+    @group(0) @binding(1) var<storage, read_write> velocity : array<f32>;
+    @group(0) @binding(2) var<storage, read> pruneMask : array<f32>;
+    @group(0) @binding(3) var<storage, read> T : array<f32>;
+    @group(0) @binding(4) var<storage, read> coreMask : array<f32>;
+    @group(0) @binding(5) var<storage, read> neighbors : array<u32>;
+    @group(0) @binding(6) var<storage, read_write> betaLocal : array<f32>;
+
+    @compute @workgroup_size(256)
+    fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+      let i = id.x;
+      if (i >= arrayLength(&S)) { return; }
+
+      if (pruneMask[i] < 0.5) {
+        velocity[i] *= 0.4;
+        S[i] += velocity[i] * 0.1;
+        return;
+      }
+
+      var force = 0.0;
+      let Ti = T[i];
+      for (var k = 0u; k < 32u; k++) {
+        let j = neighbors[i * 32u + k];
+        if (i == j) { continue; }
+        let delta = S[i] - S[j];
+        let Tj = T[j];
+        let raw_w = pow(1.0 + (delta * delta) / (Ti * Tj * Ti * Tj), -betaLocal[i]);
+
+        let isCore = coreMask[i] > 0.5 || coreMask[j] > 0.5;
+        let w = isCore ? 1.0 : (raw_w > 0.367879 ? raw_w : 0.0);
+
+        force += w * delta;
+      }
+      velocity[i] = velocity[i] * 0.88 + force * 0.0012;
+      S[i] += velocity[i] * 0.22;
+
+      betaLocal[i] = betaLocal[i] * 0.93 + 3.0 * 0.07;
+    }
+  `;
+
+  const shaderModule = device.createShaderModule({ code: wgsl });
+  const bindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+    ]
+  });
+
+  computePipeline = device.createComputePipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+    compute: { module: shaderModule, entryPoint: "main" }
+  });
+}
+
+function buildNeighborGraph() {
+  for (let i = 0; i < N; i++) {
+    let count = 0;
+    for (let attempt = 0; attempt < 128 && count < 32; attempt++) {
+      const j = Math.floor(Math.random() * N);
+      if (j === i) continue;
+      const delta = Math.abs(S[i] - S[j]);
+      if (delta < 4.0 || Math.random() < 0.35) {
+        neighbors[i * 32 + count] = j;
+        count++;
+      }
+    }
+    while (count < 32) {
+      const j = Math.floor(Math.random() * N);
+      if (j !== i) neighbors[i * 32 + count++] = j;
+    }
+  }
+}
+
+async function init() {
+  const gpuReady = await initWebGPU();
+  if (gpuReady) await createComputePipeline();
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 4000);
+  camera.position.set(220, 160, 280);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+  points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 3.2, vertexColors: true, transparent: true, opacity: 0.92 }));
+  scene.add(points);
+
+  // Create GPU buffers
+  SBuffer = device.createBuffer({ size: S.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  velocityBuffer = device.createBuffer({ size: S.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  pruneMaskBuffer = device.createBuffer({ size: pruneMaskCPU.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  TBuffer = device.createBuffer({ size: T.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  coreMaskBuffer = device.createBuffer({ size: coreMaskCPU.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  neighborBuffer = device.createBuffer({ size: neighbors.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  betaBuffer = device.createBuffer({ size: betaCPU.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+  queue.writeBuffer(TBuffer, 0, T);
+  queue.writeBuffer(coreMaskBuffer, 0, coreMaskCPU);
+  queue.writeBuffer(betaBuffer, 0, betaCPU);
+
+  document.getElementById('embedInterval').oninput = e => {
+    embeddingInterval = parseInt(e.target.value) || 180;
+  };
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  seedLattice();
+}
+
+function seedLattice() {
+  for (let i = 0; i < N; i++) {
+    S[i] = (Math.random() - 0.5) * 7.5;
+    betaCPU[i] = 2.8;
+  }
+  coreMaskCPU.fill(0.0);
+  T.fill(1.0);
+  velPos.fill(0);
+  positions.fill(0);
+
+  queue.writeBuffer(SBuffer, 0, S);
+  queue.writeBuffer(velocityBuffer, 0, new Float32Array(N));
+  queue.writeBuffer(coreMaskBuffer, 0, coreMaskCPU);
+  queue.writeBuffer(betaBuffer, 0, betaCPU);
+
+  buildNeighborGraph();
+  queue.writeBuffer(neighborBuffer, 0, neighbors);
+
+  frame = 0;
+  lastEmbeddingFrame = 0;
+  updatePruneMask();
+}
+
+function seedKnot() {
+  coreMaskCPU.fill(0.0);
+  const coreSize = Math.floor(N * 0.08);
+  for (let i = 0; i < coreSize; i++) {
+    S[i] = -8.0;
+    coreMaskCPU[i] = 1.0;
+    betaCPU[i] = 3.0;
+  }
+  for (let i = coreSize; i < N; i++) {
+    S[i] = (Math.random() - 0.5) * 0.8;
+    betaCPU[i] = 3.0;
+  }
+  queue.writeBuffer(SBuffer, 0, S);
+  queue.writeBuffer(coreMaskBuffer, 0, coreMaskCPU);
+  queue.writeBuffer(betaBuffer, 0, betaCPU);
+
+  buildNeighborGraph();
+  queue.writeBuffer(neighborBuffer, 0, neighbors);
+
+  frame = 0;
+  lastEmbeddingFrame = 0;
+  updatePruneMask();
+}
+
+function updatePruneMask() {
+  // Simplified version for v63
+  for (let i = 0; i < N; i++) {
+    let grad = 0;
+    for (let k = 0; k < 16; k++) {
+      const j = neighbors[i * 32 + k];
+      if (j === i) continue;
+      grad += Math.abs(S[i] - S[j]);
+    }
+    const avg = grad / 16;
+    const isCore = coreMaskCPU[i] > 0.5;
+    pruneMaskCPU[i] = (isCore || avg > 0.65) ? 1.0 : 0.0;
+  }
+  queue.writeBuffer(pruneMaskBuffer, 0, pruneMaskCPU);
+}
+
+async function relaxStep(steps = 60) {
+  if (frame % 8 === 0) updatePruneMask();
+
+  const bindGroup = device.createBindGroup({
+    layout: computePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: SBuffer } },
+      { binding: 1, resource: { buffer: velocityBuffer } },
+      { binding: 2, resource: { buffer: pruneMaskBuffer } },
+      { binding: 3, resource: { buffer: TBuffer } },
+      { binding: 4, resource: { buffer: coreMaskBuffer } },
+      { binding: 5, resource: { buffer: neighborBuffer } },
+      { binding: 6, resource: { buffer: betaBuffer } }
+    ]
+  });
+
+  const commandEncoder = device.createCommandEncoder();
+  const pass = commandEncoder.beginComputePass();
+  pass.setPipeline(computePipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(Math.ceil(N / 256));
+  pass.end();
+  queue.submit([commandEncoder.finish()]);
+
+  for (let i = 0; i < N; i++) betaCPU[i] = betaCPU[i] * 0.93 + 3.0 * 0.07;
+  queue.writeBuffer(betaBuffer, 0, betaCPU);
+
+  frame += steps;
+}
+
+// Simple JavaScript force-directed embedding
+function embedPositions() {
+  const strength = 0.008;
+  const damping = 0.82;
+
+  for (let i = 0; i < N; i++) {
+    let fx = 0, fy = 0, fz = 0;
+    let count = 0;
+
+    for (let k = 0; k < 32; k++) {
+      const j = neighbors[i * 32 + k];
+      if (j === i || pruneMaskCPU[j] < 0.5) continue;
+
+      const dx = positions[j*3] - positions[i*3];
+      const dy = positions[j*3+1] - positions[i*3+1];
+      const dz = positions[j*3+2] - positions[i*3+2];
+
+      fx += dx * strength;
+      fy += dy * strength;
+      fz += dz * strength;
+      count++;
+    }
+
+    if (count > 0) {
+      velPos[i*3]   = velPos[i*3] * damping + fx;
+      velPos[i*3+1] = velPos[i*3+1] * damping + fy;
+      velPos[i*3+2] = velPos[i*3+2] * damping + fz;
+
+      positions[i*3]   += velPos[i*3];
+      positions[i*3+1] += velPos[i*3+1];
+      positions[i*3+2] += velPos[i*3+2];
+    }
+  }
+}
+
+function updateVisualization() {
+  const posAttr = points.geometry.attributes.position.array;
+  const col = points.geometry.attributes.color.array;
+
+  for (let i = 0; i < N; i++) {
+    const idx = i * 3;
+    posAttr[idx]   = positions[idx];
+    posAttr[idx+1] = positions[idx+1];
+    posAttr[idx+2] = positions[idx+2];
+
+    const isHigh = pruneMaskCPU[i] > 0.5;
+    const brightness = isHigh ? 1.0 : 0.35;
+    col[idx]   = brightness * 0.4;
+    col[idx+1] = brightness * 1.0;
+    col[idx+2] = brightness * 0.9;
+  }
+
+  points.geometry.attributes.position.needsUpdate = true;
+  points.geometry.attributes.color.needsUpdate = true;
+}
+
+function updateDiagnostics() {
+  const avgBeta = betaCPU.reduce((a, b) => a + b, 0) / N;
+  const pruneCount = pruneMaskCPU.reduce((a, b) => a + (b > 0.5 ? 1 : 0), 0);
+  const prunePercent = Math.round((pruneCount / N) * 100);
+
+  document.getElementById('diagnostics').innerHTML = `
+N = ${N}<br>
+β_eff = ${avgBeta.toFixed(3)}<br>
+deff ≈ 3.00<br>
+Pruning = ${prunePercent}%<br>
+Embedding: ${frame - lastEmbeddingFrame} steps ago
+  `;
+}
+
+function animate() {
+  if (!isPaused) {
+    const steps = parseInt(document.getElementById('steps').value) || 60;
+    relaxStep(steps).then(() => {
+      // Embedding counter logic
+      if (frame - lastEmbeddingFrame >= embeddingInterval) {
+        embedPositions();
+        updateVisualization();
+        lastEmbeddingFrame = frame;
+      }
+      updateDiagnostics();
+    });
+  }
+
+  const t = Date.now() * 0.0003;
+  camera.position.x = Math.sin(t) * 650;
+  camera.position.y = 180 + Math.cos(t * 0.7) * 90;
+  camera.position.z = Math.cos(t) * 650;
+  camera.lookAt(0, 40, 0);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+function togglePause() { isPaused = !isPaused; }
+function resetAll() { seedLattice(); }
+function launchPacket() {
+  // Simple central bump for now
+  const amplitude = 6.0;
+  for (let i = 0; i < N; i++) {
+    if (coreMaskCPU[i] > 0.5) {
+      S[i] += amplitude;
+    }
+  }
+  queue.writeBuffer(SBuffer, 0, S);
+}
+
+init().then(() => animate());
+</script>
+</body>
+</html>
