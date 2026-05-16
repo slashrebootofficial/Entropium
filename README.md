@@ -21,7 +21,8 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 4. Click **"Seed Scalar Knot"** and watch the theory run live
 
 > **Note:** WebGPU works best when the HTML file is opened from your local filesystem. Online previewers usually block or disable WebGPU for security reasons.
-
+> **Requirements**: WebGPU enabled (default in current Chrome/Edge). \
+> **Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
 ### Features
 
 - Scalar knots with protected primordial cores (Paper 3)
@@ -31,15 +32,6 @@ It executes the exact native pre-geometric lattice operations from *EUT II* and 
 - Rydberg-style gradient packet injection
 - Live diagnostics (\(\beta_{\rm eff}\), \(Q\), coordination number, pruning, etc.)
 - Runs entirely in-browser with WebGPU (no installation)
-
-### How to run
-
-1. Download `entropium-v62.html` or
-2. Download `entropium-pure-geometric-v70.html`
-3. Open it in **Google Chrome** or **Microsoft Edge** (latest version)
-
-**Requirements**: WebGPU enabled (default in current Chrome/Edge). \
-**Important:** Edge: may need to be enabled manually → [Enable WebGPU in Microsoft Edge](https://enablegpu.com/guides/edge/)
 
 ### Related papers
 
