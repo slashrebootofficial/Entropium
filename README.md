@@ -7,17 +7,18 @@ A standalone, single-file interactive demonstration that faithfully implements t
 It executes the exact native pre-geometric lattice operations from *EUT II* and the scalar knot physics from *Paper 3*, producing stable scalar knots with protected primordial cores, true emergent 3D geometry, localized Rydberg packets, and live spectral diagnostics — all directly from the equations in the papers.
 
 <p align="center">
-  <img src="entropium-v62-screenshot.png" 
-       alt="Entropium v62 — Scalar knot with Rydberg packet" 
+  <img src="entropium-v70-screenshot.png" 
+       alt="Entropium v70 Screenshot" 
        width="820" style="max-width:100%; border-radius:8px; box-shadow: 0 4px 20px rgba(0,255,100,0.15);">
 </p>
-<p align="center"><em>Live scalar knot with Rydberg packet (v62)</em></p>
+<p align="center"><em>Screenshot of Emergent Geometry (v70)</em></p>
 
 ### Try it now
 
-1. **Download** [`entropium-v62.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-v62.html)
-2. Open the file directly in **Google Chrome** or **Microsoft Edge** (latest version)
-3. Click **"Seed Scalar Knot"** and watch the theory run live
+1. **Download** [`entropium-v62.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-v62.html) or
+2. **Download** [`entropium-pure-geometric-v70.html`](https://github.com/slashrebootofficial/Entropium/raw/main/entropium-pure-geometric-v70.html)
+3. Open the file directly in **Google Chrome** or **Microsoft Edge** (latest version)
+4. Click **"Seed Scalar Knot"** and watch the theory run live
 
 > **Note:** WebGPU works best when the HTML file is opened from your local filesystem. Online previewers usually block or disable WebGPU for security reasons.
 
